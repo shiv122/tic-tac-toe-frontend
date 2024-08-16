@@ -1,0 +1,28 @@
+{
+  "name": "nuxt-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "notivue": "^2.4.4",
+    "nuxt": "^3.12.2",
+    "pinia": "^2.1.7",
+    "pusher-js": "^8.4.0-rc2",
+    "vue": "^3.4.29",
+    "vue-confetti-explosion": "^1.0.2",
+    "vue-router": "^4.3.3"
+  },
+  "devDependencies": {
+    "@nuxt/ui": "^2.17.0",
+    "@nuxtjs/laravel-echo": "^1.1.0",
+    "@pinia-plugin-persistedstate/nuxt": "^1.2.0",
+    "@pinia/nuxt": "^0.5.1",
+    "@vueuse/nuxt": "^10.11.0"
+  }
+}
