@@ -33,9 +33,9 @@
           :key="i"
         >
           <button
-            :disabled="!yourTurn || grid[i][j] !== null"
+            :disabled="!yourTurn"
             class="h-[6rem] w-[6rem] border-4 border-[#D9EDBF] m-[1rem] rounded-lg"
-            :class="`${cell === you.id ? 'text-cyan-500' : 'text-[#FF9800]'} ${
+            :class="`${cell ? 'text-[#FF9800]' : 'text-cyan-500'} ${
               !yourTurn ? 'cursor-not-allowed' : ''
             } ${yourTurn ? 'border-green-500' : 'border-red-500'}`"
             v-for="(cell, j) of row"
@@ -43,13 +43,39 @@
             @click="play(i, j)"
           >
             <span v-if="cell === null"></span>
-            <div v-else-if="cell === you.id">
-              <!-- SVG for the first player's marker (e.g., X) -->
-              You
+            <div v-else-if="cell === false">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="100%"
+                height="100%"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0"
+                />
+              </svg>
             </div>
-            <div v-else-if="cell !== you.id">
-              <!-- SVG for the second player's marker (e.g., O) -->
-              Other
+            <div v-else-if="cell === true">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="100%"
+                height="100%"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M18 6L6 18M6 6l12 12"
+                />
+              </svg>
             </div>
           </button>
         </div>
@@ -59,13 +85,17 @@
           <!-- <UButton @click="test">Test</UButton> -->
         </div>
         <UDivider label="Players" type="dashed" size="sm" class="my-5" />
+
         <div
           v-for="player in players"
           :key="player.user.id"
           :class="
-            player.user.id == currentPlayer
+            (player.user.id === you.id && yourTurn
               ? 'ring-2 ring-gray-200 dark:ring-slate-500'
-              : ''
+              : '',
+            player.user.id !== you.id && !yourTurn
+              ? 'ring-2 ring-gray-200 dark:ring-slate-500'
+              : '')
           "
           class="player-card flex bg-gray-800 justify-between rounded-md overflow-hidden my-2"
         >
@@ -83,9 +113,7 @@
               />
             </div>
             <p class="player-card__name m-1 font-bold text-gray-200 leading-5">
-              {{
-                player.user.id === you.id ? "You " + you.id : player.user.name
-              }}
+              {{ player.user.id === you.id ? "You" : player.user.name }}
               <br />
               <small class="player-card__username text-gray-500"
                 >@{{ player.user.email.split("@")[0] }}
@@ -110,7 +138,7 @@ const winner = ref(null);
 const tied = ref(false);
 const gameover = ref(false);
 const gameoverSent = ref(false);
-const currentPlayer = ref(null); // Store the current player's user ID
+const currentPlayer = ref(true);
 const players = ref([]);
 const roomStore = useRoomStore();
 const { $echo } = useNuxtApp();
@@ -119,6 +147,7 @@ const you = useCookie("userData").value;
 const router = useRouter();
 const room_code_source = ref(roomStore.roomData?.room_code);
 const { text, copy, copied, isSupported } = useClipboard({ room_code_source });
+let timeline = [];
 let move = 0;
 
 const confettiVisible = ref(false);
@@ -126,7 +155,7 @@ const confettiVisible = ref(false);
 const test = async () => {};
 const play = async (i, j) => {
   if (players.value.length < 2) {
-    push.warning("You need two players in the room");
+    push.warning("You need two player in the room");
     return;
   }
 
@@ -139,11 +168,11 @@ const play = async (i, j) => {
   }
   if (grid.value[i][j] !== null) {
     push.warning("Already Set");
+
     return;
   }
   move++;
-  grid.value[i][j] = currentPlayer.value; // Set the current player's ID in the grid
-
+  grid.value[i][j] = currentPlayer.value;
   try {
     const res = await $api("/game/play", {
       method: "POST",
@@ -151,7 +180,7 @@ const play = async (i, j) => {
         game_id: roomStore.roomData.room_code,
         data: {
           grid: { i, j },
-          player: you.id, // Pass the current player's ID
+          player: currentPlayer.value,
         },
       },
       headers: {
@@ -162,38 +191,124 @@ const play = async (i, j) => {
       },
     });
 
-    console.log("play res >>>", res);
-    grid.value = res.data.grid;
-    if (res.data.winner) {
-      winner.value = res.data.winner;
+    console.log("response >>>", res);
+  } catch (error) {
+    console.log("Error res >>>", error);
+  } finally {
+    checkWinner();
+    updateTimeline(
+      grid.value.map((row) => [...row]),
+      move,
+      currentPlayer.value
+    );
+    if (!gameover.value) {
+      currentPlayer.value = !currentPlayer.value;
+    }
+    yourTurn.value = false;
+  }
+};
 
-      if (winner.value == you.id) {
-        push.success({
-          title: "Congrats!!!",
-          message: "You Won the game",
-        });
+const updateTimeline = (grid, move, currentPlayer) => {
+  timeline.push({
+    move: move,
+    grid: grid,
+    player: currentPlayer,
+  });
+};
+
+const checkWinner = async () => {
+  const winningConditions = [
+    // --
+    [
+      [0, 0],
+      [0, 1],
+      [0, 2],
+    ],
+    [
+      [1, 0],
+      [1, 1],
+      [1, 2],
+    ],
+    [
+      [2, 0],
+      [2, 1],
+      [2, 2],
+    ],
+    // |
+    [
+      [0, 0],
+      [1, 0],
+      [2, 0],
+    ],
+    [
+      [0, 1],
+      [1, 1],
+      [2, 1],
+    ],
+    [
+      [0, 2],
+      [1, 2],
+      [2, 2],
+    ],
+    // \
+    [
+      [0, 0],
+      [1, 1],
+      [2, 2],
+    ],
+    [
+      [0, 2],
+      [1, 1],
+      [2, 0],
+    ],
+  ];
+
+  for (const condition of winningConditions) {
+    const [a, b, c] = condition;
+    const [x1, y1] = a;
+    const [x2, y2] = b;
+    const [x3, y3] = c;
+
+    if (
+      grid.value[x1][y1] !== null &&
+      grid.value[x1][y1] === grid.value[x2][y2] &&
+      grid.value[x1][y1] === grid.value[x3][y3]
+    ) {
+      winner.value = grid.value[x1][y1];
+      push.success({
+        title: yourTurn.value ? "Congrats!!!" : "Game Over",
+        message: (yourTurn.value ? "You" : "Other Player") + " Won the game",
+      });
+      if (yourTurn.value) {
         confettiVisible.value = false;
         await nextTick();
         confettiVisible.value = true;
       }
       gameover.value = true;
-      await getRoomState();
-    } else if (res.data.draw) {
+      return;
+    }
+  }
+
+  if (!gameover.value) {
+    let isTied = true;
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        if (grid.value[i][j] === null) {
+          isTied = false;
+          break;
+        }
+      }
+      if (!isTied) break;
+    }
+
+    if (isTied) {
       push.success({
         title: "Game Over",
         message: "This game as been a tie",
       });
       tied.value = true;
       gameover.value = true;
-      await getRoomState();
     }
-    if (gameover.value) {
-    } else {
-      currentPlayer.value = res.data.current_player; // Switch to the next player's ID
-    }
-  } catch (error) {
-    console.log("play error >>>", error);
-  } finally {
   }
 };
 
@@ -207,78 +322,46 @@ const reset = () => {
   tied.value = false;
   gameover.value = false;
   gameoverSent.value = false;
-  currentPlayer.value = players.value.length > 1 ? 0 : you.id; // Reset to the first player's ID
-};
-
-const getRoomState = async () => {
-  try {
-    const res = await $api("/room/get-state", {
-      method: "POST",
-      body: {
-        game_id: roomStore.roomData.room_code,
-      },
-    });
-    if (res.state == null) {
-      reset();
-    } else {
-      const st = JSON.parse(res.state);
-      console.log("state  res >>>", st);
-
-      grid.value = st.grid;
-      currentPlayer.value = st.current_player;
-    }
-  } catch (error) {
-    console.log("state error >>>", error);
-  }
+  currentPlayer.value = true;
+  timeline = [];
+  move = 0;
 };
 
 onMounted(async () => {
   if (roomStore.roomData === null) {
     await router.push("/");
   }
-  await getRoomState();
   $echo
-    .join(`room.${roomStore.roomData?.room_code}`)
+    .join(`room.${roomStore.roomData.room_code}`)
     .here((users) => {
       players.value = users;
+      yourTurn.value = users.length < 2;
     })
-    .joining(async (user) => {
+    .joining((user) => {
       push.success(user.user.name + " Joined the game");
+
       players.value.push(user);
-      await getRoomState();
     })
-    .leaving(async (user) => {
+    .leaving((user) => {
       players.value = players.value.filter((pl) => pl.user.id !== user.user.id);
       push.warning(user.user.name + " left the game");
+      reset();
+      yourTurn.value = true;
     })
     .error((error) => {
       console.error(error);
     });
 
   $echo
-    .private(`game.${roomStore.roomData?.room_code}`)
-    .listen(".update", async (e) => {
+    .private(`game.${roomStore.roomData.room_code}`)
+    .listen(".update", (e) => {
       console.log("Channel Response >>>>", e);
-      grid.value = e.data.grid;
-      if (e.data.winner) {
-        const otherpl = players.value.find((p) => p.user.id !== you.id)?.user
-          .name;
-        push.warning({
-          title: "Game Over",
-          message: otherpl + " Won The Match",
-        });
-        gameover.value = true;
-        await getRoomState();
-      } else if (e.data.draw) {
-        push.success({
-          title: "Game Over",
-          message: "This game as been a tie",
-        });
-        tied.value = true;
-        gameover.value = true;
-        await getRoomState();
+      grid.value[e.data.grid.i][e.data.grid.j] = e.data.player;
+      checkWinner();
+      if (!gameover.value) {
+        yourTurn.value = true;
+        currentPlayer.value = !e.data.player;
       }
-      currentPlayer.value = e.data.current_player;
     });
 });
 
@@ -292,8 +375,5 @@ watch(copied, (isCopied) => {
   if (isCopied) {
     push.info({ message: "Copied to clipboard", duration: 1000 });
   }
-});
-watch(currentPlayer, (cp) => {
-  yourTurn.value = cp == you.id;
 });
 </script>
